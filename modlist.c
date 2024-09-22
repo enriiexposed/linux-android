@@ -15,7 +15,7 @@ MODULE_AUTHOR("Alejandro Orgaz Fernández");
 // Pendiente porque aquí no hay un puntero
 struct proc_dir_entry *proc_entry /*Información acerca del archivo creado en /proc*/
 
-struct list_head *numlist; /* Nodo fantasma (cabecera) de la lista enlazada */
+struct list_head numlist; /* Nodo fantasma (cabecera) de la lista enlazada */
 int nelems = 0; // numero de elementos que tenemos en la lista actualmente
 
 /* Estructura que representa los nodos de la lista */
@@ -34,7 +34,7 @@ struct proc_ops numlist_ops = {
 
 /* Funcion que lee el espacio de usuario y escribe de manera segura en buf */
 // TODO: PENDIENTE COMPROBAR SI ES CORRECTA
-static ssize_t read_numlist (struct file *filp, int __user *buf, size_t len, loff_t *off) {
+static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, loff_t *off) {
     
     int bytes_written = sizeof(int)*nelems;
 
@@ -69,7 +69,7 @@ static ssize_t read_numlist (struct file *filp, int __user *buf, size_t len, lof
 }
 
 /*Funcion que escribe los numeros hacia la estructura de datos*/
-static ssize_t write_numlist (struct file *filp, const int __user *buf, size_t len, loff_t *off) {
+static ssize_t write_numlist (struct file *filp, const char __user *buf, size_t len, loff_t *off) {
 
 }   
 
@@ -82,10 +82,11 @@ int modlist_init(void) {
     // No sé si es necesario
     LIST_NAME("modlist");
 
-    // RESERVO MEMORIA PARA CADA UNO DE LOS NODOS ?
+    // RESERVO MEMORIA PARA CADA UNO DE LOS NODOS mediante el list_head numlist??
+    // O reservo memoria por cada nodo que haya ?
 
 
-    
+
     if (*numlist == NULL) {
         return -ENOMEM;
     }
