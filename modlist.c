@@ -37,8 +37,8 @@ static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, lo
     
     int bytes_written;
 
-    list_head *i = NULL;
-    list_item *item = NULL;
+    struct list_head *i = NULL;
+    struct list_item *item = NULL;
 
     char bufaux[MAX_SIZE] = "";
     char *ptrbufaux = bufaux;
@@ -70,15 +70,51 @@ static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, lo
         return -EINVAL;
     }
 
-    kfree(aux);
-
-    (*off) += len;
+    (*off) += (bytes_written);
 
     return bytes_written;
 }
 
 /*Funcion que escribe los numeros hacia la estructura de datos*/
 static ssize_t write_numlist (struct file *filp, const char __user *buf, size_t len, loff_t *off) {
+
+    // numero que insertaremos en la lista
+    int n; 
+    char buf[MAXBUF];
+
+    if (copy_from_user(buf, bufaux, len + 1) == 1) {
+        return -ENOSPC;
+    }
+
+    bufaux[len] = '\0';
+
+    if (sscanf(bufaux, "add %i", &n) == 1) {
+        struct list_item *newelem = (list_item*) kmalloc(sizeof(struct list_item), GFP_KERNEL);
+        newelem->data = n;
+
+        list_add_tail(&newelem->links, numlist);
+
+    } else if (sscanf(bufaux, "remove %i", &n) == 1) {
+        // reservo memoria del elemento borrado
+        struct list_head *elemborrado = NULL;
+
+        // res
+        struct list_head *iterator = NULL;
+
+
+        
+        list_for_each_safe(iterator, elemborrado, numlist) {
+            if (iterator->data == n) {
+                list.del(iterator);
+
+                
+            }
+        }
+
+    } else if (strcmp(bufaux, "cleanup\n") == 0){
+
+    } else return -EINVAL; // pendiente cambio al error adecuado
+    // func para comp -> strcmp
 
 }   
 
