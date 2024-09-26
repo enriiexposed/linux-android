@@ -10,8 +10,7 @@ MODULE_AUTHOR("Enrique Ríos Ríos");
 MODULE_AUTHOR("Alejandro Orgaz Fernández");
 
 // Defines de constantes del módulo
-#define MAX_ELEMENTS 30
-
+#define MAX_SIZE 128 
 // Pendiente porque aquí no hay un puntero
 struct proc_dir_entry *proc_entry /*Información acerca del archivo creado en /proc*/
 
@@ -36,28 +35,38 @@ struct proc_ops numlist_ops = {
 // TODO: PENDIENTE COMPROBAR SI ES CORRECTA
 static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, loff_t *off) {
     
-    int bytes_written = sizeof(int)*nelems;
+    int bytes_written;
+
+    list_head *i = NULL;
+    list_item *item = NULL;
+
+    char bufaux[MAX_SIZE] = "";
+    char *ptrbufaux = bufaux;
+
+    list_for_each(i, numlist) {
+        // Usamos list_entry para saber el nodo que toca
+        item = list_entry(i, struct list_item, links);
+        
+        int numberbytes = sprintf(ptrbufaux, "%d\n", item->data);
+
+        // Comprobamos si podemos meter el numero dentro del buffer de char que hemos declarado
+        if ((ptrbufaux - bufaux) + numberbytes > sizeof(char) * MAX_SIZE) {
+            return -ENOSPC;
+        }
+
+        ptrbufaux += numberbytes;
+    }
+
+    ptrbufaux = '\0';
+
+    bytes_written = ptrbufaux - bufaux;
 
     // si no podemos escribir en el buffe, lanzamos el error
     if (len < bytes_written) {
         return -ENOMEM;
     }
 
-    list_head *i = NULL;
-    list_item *item = NULL;
-
-    // creamos una lista auxiliar;
-    int *aux;
-    aux = kmalloc(bytes_written);
-
-    i = 0;
-    list_for_each(i, &numlist) {
-        // Usamos list_entry para saber el nodo que toca
-        item = list_entry(i, struct list_item, links);
-        aux[i++] = item->data;  
-    }
-
-    if (copy_to_user(buf, aux, bytes_written) {
+    if (copy_to_user(buf, bufaux, bytes_written) {
         return -EINVAL;
     }
 
