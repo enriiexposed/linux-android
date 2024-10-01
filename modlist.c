@@ -91,31 +91,31 @@ static ssize_t write_numlist (struct file *filp, const char __user *buf, size_t 
     if (sscanf(bufaux, "add %i", &n) == 1) {
         struct list_item *newelem = (list_item*) kmalloc(sizeof(struct list_item), GFP_KERNEL);
         newelem->data = n;
-
+        
         list_add_tail(&newelem->links, numlist);
 
     } else if (sscanf(bufaux, "remove %i", &n) == 1) {
-        // reservo memoria del elemento borrado
+        // guardo un puntero del elemento borrado
         struct list_head *elemborrado = NULL;
 
-        // res
+        // guardo un puntero del iterador de la lista
         struct list_head *iterator = NULL;
-
-
         
+        // recorro la lista de números
         list_for_each_safe(iterator, elemborrado, numlist) {
             if (iterator->data == n) {
                 list.del(iterator);
-
-                
+                kfree(&iterator->links);
+                printf("El elemento %d ha sido borrado\n", n);
             }
         }
 
     } else if (strcmp(bufaux, "cleanup\n") == 0){
-
+    
     } else return -EINVAL; // pendiente cambio al error adecuado
     // func para comp -> strcmp
 
+    return 0;
 }   
 
 
@@ -127,20 +127,10 @@ int modlist_init(void) {
     // No sé si es necesario
     LIST_NAME("modlist");
 
-    // RESERVO MEMORIA PARA CADA UNO DE LOS NODOS mediante el list_head numlist??
-    // O reservo memoria por cada nodo que haya ?
-
-
-
-    if (*numlist == NULL) {
-        return -ENOMEM;
-    }
-
     proc_entry = proc_create ("modlist", 0666, NULL, &numlist_ops);
 
     if (proc_entry == NULL) {
         ret = -ENOMEM;
-        vfree(&numlist);
         printk(KERN_INFO "Can't create the proc entry\n");
     }
 
@@ -152,7 +142,6 @@ int modlist_init(void) {
 /* Función que se invoca cuando se descarga el módulo del kernel */
 void modlist_clean(void) {
     remove_proc_entry("modlist", NULL);
-    kfree(&numlist);
     printk(KERN_INFO "Modulo LIN descargado. Adios kernel.\n");
 }
 
