@@ -88,33 +88,32 @@ static ssize_t write_numlist (struct file *filp, const char __user *buf, size_t 
 
     bufaux[len] = '\0';
 
+    // guardo un puntero del elemento borrado
+    struct list_head *elemborrado = NULL;
+
+    // guardo un puntero del iterador de la lista
+    struct list_head *iterator = NULL;
+
     if (sscanf(bufaux, "add %i", &n) == 1) {
         struct list_item *newelem = (list_item*) kmalloc(sizeof(struct list_item), GFP_KERNEL);
         newelem->data = n;
-        
-        list_add_tail(&newelem->links, numlist);
-
+        list_add_tail(&(newelem->links), numlist);
     } else if (sscanf(bufaux, "remove %i", &n) == 1) {
-        // guardo un puntero del elemento borrado
-        struct list_head *elemborrado = NULL;
-
-        // guardo un puntero del iterador de la lista
-        struct list_head *iterator = NULL;
-        
         // recorro la lista de números
         list_for_each_safe(iterator, elemborrado, numlist) {
             if (iterator->data == n) {
                 list.del(iterator);
                 kfree(&iterator->links);
-                printf("El elemento %d ha sido borrado\n", n);
+                printk(KERN_INFO "El elemento %d ha sido borrado\n", n);
             }
         }
-
     } else if (strcmp(bufaux, "cleanup\n") == 0){
-    
+        list_for_each_safe(iterator, elemborrado, numlist) {
+            list.del(iterator);
+            kfree(&iterator->links);
+        }
+        printk(KERN_INFO "Todos los elementos han sido borrados\n");
     } else return -EINVAL; // pendiente cambio al error adecuado
-    // func para comp -> strcmp
-
     return 0;
 }   
 
