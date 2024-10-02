@@ -4,6 +4,7 @@
 #include <linux/proc_fs.h>
 #include <linux/list.h>
 #include <linux/printk.h>
+#include <linux/ftrace.h>
 
 MODULE_LICENSE("GPL"); /* Licencia del módulo */
 MODULE_DESCRIPTION("Módulo del Kernel para insertar numeros en una lista");
@@ -11,11 +12,13 @@ MODULE_AUTHOR("Enrique Ríos Ríos");
 MODULE_AUTHOR("Alejandro Orgaz Fernández");
 
 // Defines de constantes del módulo
-#define MAX_SIZE 128 
+#define MAX_SIZE 96
 // Pendiente porque aquí no hay un puntero
-static struct proc_dir_entry *proc_entry; /*Información acerca del archivo creado en /proc*/
+/*Información acerca del archivo creado en /proc*/
+static struct proc_dir_entry *proc_entry; 
 
-struct list_head numlist; /* Nodo fantasma (cabecera) de la lista enlazada */
+ /* Nodo fantasma (cabecera) de la lista enlazada */
+static LIST_HEAD(numlist);
 
 /* Estructura que representa los nodos de la lista */
 struct list_item {
@@ -31,7 +34,7 @@ struct list_item {
 // TODO: PENDIENTE COMPROBAR SI ES CORRECTA
 static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, loff_t *off) {
     
-    int bytes_written;
+    ssize_t bytes_written;
 
     struct list_head *i = NULL;
     struct list_item *item = NULL;
@@ -39,11 +42,17 @@ static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, lo
     char bufaux[MAX_SIZE] = "";
     char *ptrbufaux = bufaux;
 
+    if ((*off) > 0) return 0;
+
+    printk(KERN_INFO "Entrando en lista");
+
     list_for_each(i, &numlist) {
         // Usamos list_entry para saber el nodo que toca
         item = list_entry(i, struct list_item, links);
         
         int numberbytes = sprintf(ptrbufaux, "%d\n", item->data);
+
+        printk(KERN_INFO "Iteracion del bucle");
 
         // Comprobamos si podemos meter el numero dentro del buffer de char que hemos declarado
         if ((ptrbufaux - bufaux) + numberbytes > sizeof(char) * MAX_SIZE) {
@@ -53,14 +62,19 @@ static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, lo
         ptrbufaux += numberbytes;
     }
 
-    ptrbufaux = '\0';
+    *ptrbufaux = '\0';
 
     bytes_written = ptrbufaux - bufaux;
 
+    printk(KERN_INFO "Error de no poder escribir en buffer");
+
     // si no podemos escribir en el buffe, lanzamos el error
     if (len < bytes_written) {
+        printk(KERN_INFO "Valor de len: %d, valor de bytes_written: %x", len, bytes_written);
         return -ENOMEM;
     }
+
+    printk(KERN_INFO "Error del copy to user");
 
     if (copy_to_user(buf, bufaux, bytes_written)) {
         return -EINVAL;
@@ -77,9 +91,19 @@ static ssize_t write_numlist (struct file *filp, const char __user *buf, size_t 
     // numero que insertaremos en la lista
     int n; 
     char bufaux[MAX_SIZE];
-    if (copy_from_user(bufaux, buf, len + 1) == 1) {
+
+    if (*off > 0) {
+        return 0;
+    }
+
+    if (len > MAX_SIZE - 1) {
+        return -EINVAL;
+    }
+
+    if (copy_from_user(bufaux, buf, len) == 1) {
         return -EFAULT;
     }
+
     bufaux[len] = '\0';
 
     // guardo un puntero del elemento borrado
@@ -89,12 +113,21 @@ static ssize_t write_numlist (struct file *filp, const char __user *buf, size_t 
     struct list_head *iterator = NULL;
 
     // necesario cuando queremos hacer el kfree del puntero del elemento
-    struct list_item *number;
+    struct list_item *number = NULL;
 
     if (sscanf(bufaux, "add %i", &n) == 1) {
-        struct list_item *newelem = (struct list_item*) kmalloc(sizeof(struct list_item), GFP_KERNEL);
+        printk(KERN_INFO "Entrando en add");
+        struct list_item *newelem = kmalloc(sizeof(struct list_item), GFP_KERNEL);
+        printk(KERN_INFO "Guardado el puntero");
+        if (newelem == NULL) {
+            trace_printk("Memoria de newelem: %d", newelem);
+            return -1;    
+        }
+        printk(KERN_INFO "El puntero no es null");
         newelem->data = n;
-        list_add_tail(&(newelem->links), &numlist);
+        INIT_LIST_HEAD(&newelem->links);
+        list_add_tail(&newelem->links, &numlist);
+        printk(KERN_INFO "Añadido el nodo %d\n", n);
     } 
 
     else if (sscanf(bufaux, "remove %i", &n) == 1) {
@@ -122,9 +155,9 @@ static ssize_t write_numlist (struct file *filp, const char __user *buf, size_t 
     else 
         return -EINVAL; // pendiente cambio al error adecuado
     
-    *off += len;
+    (*off) += len;
     // En caso de exito retorna cero
-    return 0;
+    return len;
 }   
 
 struct proc_ops numlist_ops = {
@@ -134,9 +167,6 @@ struct proc_ops numlist_ops = {
 
 /* Función que se invoca cuando se carga el módulo en el kernel */
 int modlist_init(void) {
-    // REVISAR
-    INIT_LIST_HEAD(&numlist);
-
     proc_entry = proc_create ("modlist", 0666, NULL, &numlist_ops);
 
     if (proc_entry == NULL) {
