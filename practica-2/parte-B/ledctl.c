@@ -17,9 +17,9 @@ SYSCALL_DEFINE1(ledctl, unisgned int leds)
     return -EINVAL;
   }
 
+  if (kbd_driver == NULL) init_driver();
 
-
-  return 0;
+  return set_leds(kbd_driver, leds);
 }
 
 void init_driver() {
