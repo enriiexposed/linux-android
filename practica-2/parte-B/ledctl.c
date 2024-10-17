@@ -19,7 +19,12 @@ SYSCALL_DEFINE1(ledctl, unisgned int leds)
 
   if (kbd_driver == NULL) init_driver();
 
-  return set_leds(kbd_driver, leds);
+  if (set_leds(kbd_driver, leds) !=  0) {
+    printk(KERN_INFO "Es posible que esta llamada al sistema haya sido ejecutada sin ser root\n");
+    return -EACCES;
+  }
+
+  return 0;
 }
 
 void init_driver() {
