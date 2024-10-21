@@ -7,7 +7,9 @@
 #include <linux/kd.h>
 #include <linux/vt_kern.h>
 
-
+#define LED_SCROLL_LOCK 0x1  // Bit 0: Scroll Lock
+#define LED_NUM_LOCK    0x2  // Bit 1: Num Lock
+#define LED_CAPS_LOCK   0x4  // Bit 2: Caps Lock
 /*
 Falta meter registro en la tabla de arquitectura CUANDO COMPILEMOS KERNEL
 */
@@ -31,8 +33,18 @@ SYSCALL_DEFINE1(ledctl, unsigned int, leds)
   }
 
   kbd_driver= get_kbd_driver_handler();
+  unsigned int mask = 0;
 
-  if (set_leds(kbd_driver, leds) !=  0) {
+    if (leds & 0x1) {
+        mask |= LED_SCROLL_LOCK;
+    }
+    if (leds & 0x2) {
+        mask |= LED_NUM_LOCK;
+    }
+    if (leds & 0x4) {
+        mask |= LED_CAPS_LOCK;
+    }
+  if (set_leds(kbd_driver, mask) !=  0) {
     printk(KERN_INFO "Es posible que esta llamada al sistema haya sido ejecutada sin ser root\n");
     return -EACCES;
   }
