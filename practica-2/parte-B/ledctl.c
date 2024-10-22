@@ -33,17 +33,7 @@ SYSCALL_DEFINE1(ledctl, unsigned int, leds)
   }
 
   kbd_driver= get_kbd_driver_handler();
-  unsigned int mask = 0;
-
-    if (leds & 0x1) {
-        mask |= LED_SCROLL_LOCK;
-    }
-    if (leds & 0x2) {
-        mask |= LED_NUM_LOCK;
-    }
-    if (leds & 0x4) {
-        mask |= LED_CAPS_LOCK;
-    }
+  unsigned int mask = ((mask & 0x4) >>1) | ((mask & 0x2) << 1) | (mask & 0x1);
   if (set_leds(kbd_driver, mask) !=  0) {
     printk(KERN_INFO "Es posible que esta llamada al sistema haya sido ejecutada sin ser root\n");
     return -EACCES;
