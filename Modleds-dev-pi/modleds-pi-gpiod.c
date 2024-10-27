@@ -1,31 +1,14 @@
 #include <linux/module.h>
 #include <asm-generic/errno.h>
 #include <linux/gpio.h>
-#include <linux/usb.h>
-
-#define DEVICE_NAME "modleds-pi"
 
 #define ALL_LEDS_ON 0x7
 #define ALL_LEDS_OFF 0
 #define NR_GPIO_LEDS  3
 
-static struct class* class
-static struct cdev* modleds-pidev
-
-/* File operations struct */
-static struct file_operations fops = {
-  .read
-  .write
-  .open = modledspi_open
-  .release = modledspi 
-}
-
-static struct miscdevice misc_modleds {
-  .minor = MISC_DYNAMIC_MINOR,
-  .name = DEVICE_NAME,
-  .mode = 0666,
-  .fops = &fops
-};
+MODULE_DESCRIPTION("ModledsPi_gpiod Kernel Module - FDI-UCM");
+MODULE_AUTHOR("Juan Carlos Saez");
+MODULE_LICENSE("GPL");
 
 /* Actual GPIOs used for controlling LEDs */
 const int led_gpio[NR_GPIO_LEDS] = {25, 27, 4};
@@ -43,17 +26,6 @@ static inline int set_pi_leds(unsigned int mask) {
 
 static int __init modleds_init(void)
 {
-  // Initialize driver
-  int ret;
-  ret = misc_register(&misc_chardev)
-
-  if (ret) {
-    pr_err("Couldn`t register modleds, sorry!\n");
-    return ret;
-  }
-
-  printk(KERN_INFO "El registro del dispositivo se ha realizado con éxito\n");
-
   int i, j;
   int err = 0;
   char gpio_str[10];
