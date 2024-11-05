@@ -24,7 +24,7 @@ static char is_file_open = 0;
 struct gpio_desc* gpio_descriptors[NR_GPIO_LEDS];
 
 /* El numero de GPIO de los leds que modificaremos para encenderlos o apagarlos */
-const int led_gpio[NR_GPIO_LEDS] = {25, 27, 4};
+const int led_gpio[NR_GPIO_LEDS] = {4, 27, 25};
 
 /* Set led state to that specified by mask */
 static inline int set_pi_leds(unsigned int mask) {
