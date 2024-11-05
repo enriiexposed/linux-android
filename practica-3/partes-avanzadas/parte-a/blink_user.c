@@ -7,6 +7,7 @@
 
 #define DEVICE_PATH "/dev/usb/blinkstick0"
 #define NR_LEDS 8
+#define WAIT_TIME 100000
 
 void write_leds(int fd) {
     char buffer[256];
@@ -23,7 +24,7 @@ void write_leds(int fd) {
                 perror("Error al escribir en el dispositivo");
                 return;
             }
-            usleep(100000); // Espera medio segundo
+            usleep(WAIT_TIME); // Espera medio segundo
         }
 
         // Rebote de 7 a 0
@@ -34,7 +35,7 @@ void write_leds(int fd) {
                 perror("Error al escribir en el dispositivo");
                 return;
             }
-            usleep(100000); // Espera medio segundo
+            usleep(WAIT_TIME); // Espera medio segundo
         }
     }
 }
