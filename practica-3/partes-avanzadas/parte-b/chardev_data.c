@@ -101,7 +101,7 @@ int init_module(void)
 
     cdev_init(chardev, &fops);
 
-    if ((ret = cdev_add(chardev, start, 1))) {
+    if ((ret = cdev_add(chardev, start, DEVICE_COUNT))) {
         printk(KERN_INFO "cdev_add() failed ");
         goto error_add;
     }
@@ -126,13 +126,14 @@ int init_module(void)
     dev_t dev;
 
     int i;
-    for(int i = 0; i<DEVICE_COUNT; i++) {
+    for(i = 0; i<DEVICE_COUNT; i++) {
         /* Allocate device state structure and zero fill it */
         if ((ddata[i] = kzalloc(sizeof(struct device_data), GFP_KERNEL)) == NULL) {
             ret = -ENOMEM;
             goto error_alloc_state;
         }
-
+	
+	printk(KERN_INFO "Memoria reservada para el driver_data %d\n", i);
 
         /* Proper initialization */
         ddata[i]->Device_Open = 0;
@@ -142,10 +143,12 @@ int init_module(void)
         // TODO: CAMBIAR ESTO POR MACRO QUE NOS DE UN MAJOR MINOR DISTINTO        
         
         dev = MKDEV(major, i);
-        ddata[i]->major_minor = dev
+        ddata[i]->major_minor = dev;
         
         /* Creating device */
-        ddata[i]->device = device_create(class, NULL, start, ddata[i], "%s%d", DEVICE_NAME, i);
+        ddata[i]->device = device_create(class, NULL, ddata[i]->major_minor, ddata[i], "%s%d", DEVICE_NAME, i);
+	
+	    printk(KERN_INFO "Creo el dispositivo %d\n", i);
 
         if (IS_ERR(ddata[i]->device)) {
             pr_err("Device_create %d failed\n", i);
@@ -197,7 +200,8 @@ void cleanup_module(void)
     struct device* device;
     struct device_data* ddata;
     dev_t dev;
-    for (int i = 0; i < DEVICE_COUNT; i++) {
+    int i;
+    for (i = 0; i < DEVICE_COUNT; i++) {
         dev = MKDEV(MAJOR(start), i);
         device = class_find_device_by_devt(class, dev);
 
@@ -227,8 +231,9 @@ void cleanup_module(void)
     /*
     * Release major minor pair
     */
-    unregister_chrdev_region(start, 1);
+    unregister_chrdev_region(start, DEVICE_COUNT);
     
+    printk(KERN_INFO "El modulo ha sido retirado del kernel satisfactoriamente\n");
 }
 
 /*
