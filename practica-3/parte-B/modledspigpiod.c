@@ -64,8 +64,8 @@ static int __init modleds_init(void)
 
   if (ret) {
     pr_err("Couldn`t register modleds, sorry!\n");
-    return ret;
-  }
+    goto err_module_init;
+  } 
 
   printk(KERN_INFO "El registro del dispositivo se ha realizado con éxito\n");
 
@@ -100,6 +100,9 @@ err_handle:
   for (j = 0; j < i; j++)
     gpiod_put(gpio_descriptors[j]);
   return err;
+err_module_init:
+  misc_deregister(&misc_modleds);
+  return ret;
 }
 
 static void __exit modleds_exit(void) {
