@@ -198,6 +198,8 @@ modleds_write(struct file *filp, const char __user *buf, size_t len, loff_t* off
     return -EINVAL;
   }
 
+  leds = ((leds & 4) >> 2) | (leds & 2) | ((leds & 1) << 2);
+
   set_pi_leds(leds);
 
   (*off) += len;
