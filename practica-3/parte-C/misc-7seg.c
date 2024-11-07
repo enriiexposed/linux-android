@@ -22,8 +22,7 @@ MODULE_LICENSE("GPL");
 #define SEGMENT_COUNT 8
 
 /* Indices of GPIOs used by this module */
-enum
-{
+enum {
 	SDI_IDX = 0,
 	RCLK_IDX,
 	SRCLK_IDX,
@@ -31,22 +30,39 @@ enum
 };
 
 /* Pin numbers */
-const int display_gpio[NR_GPIO_DISPLAY] = {18, 23, 24};
+const int display_gpio[NR_GPIO_DISPLAY] = { 18, 23, 24 };
 
 /* Array to hold GPIO descriptors */
-struct gpio_desc *gpio_descriptors[NR_GPIO_DISPLAY];
+struct gpio_desc* gpio_descriptors[NR_GPIO_DISPLAY];
 
-const char *display_gpio_str[NR_GPIO_DISPLAY] = {"sdi", "rclk", "srclk"};
+const char* display_gpio_str[NR_GPIO_DISPLAY] = { "sdi", "rclk", "srclk" };
 
-/* Sequence of segments used by the character device driver */
-const int sequence[] = {DS_D, DS_E, DS_F, DS_A, DS_B, DS_C, DS_G, DS_DP, -1};
+/* Codificación de cada carácter hexadecimal para el display de 7 segmentos */
+const unsigned char hex_encoding[] = {
+	DS_A | DS_B | DS_C | DS_D | DS_E | DS_F,       // 0
+	DS_B | DS_C,                                   // 1
+	DS_A | DS_B | DS_G | DS_E | DS_D,              // 2
+	DS_A | DS_B | DS_C | DS_D | DS_G,              // 3
+	DS_F | DS_G | DS_B | DS_C,                     // 4
+	DS_A | DS_F | DS_G | DS_C | DS_D,              // 5
+	DS_A | DS_F | DS_G | DS_C | DS_D | DS_E,       // 6
+	DS_A | DS_B | DS_C,                            // 7
+	DS_A | DS_B | DS_C | DS_D | DS_E | DS_F | DS_G,// 8
+	DS_A | DS_B | DS_C | DS_F | DS_G,              // 9
+	DS_A | DS_B | DS_C | DS_E | DS_F | DS_G,       // A
+	DS_C | DS_D | DS_E | DS_F | DS_G,              // B
+	DS_A | DS_D | DS_E | DS_F,                     // C
+	DS_B | DS_C | DS_D | DS_E | DS_G,              // D
+	DS_A | DS_D | DS_E | DS_F | DS_G,              // E
+	DS_A | DS_E | DS_F | DS_G                      // F
+};
 
 #define DEVICE_NAME "display7s" /* Device name */
 
 /*
  *  Prototypes
  */
-static ssize_t display7s_write(struct file *, const char *, size_t, loff_t *);
+static ssize_t display7s_write(struct file*, const char*, size_t, loff_t*);
 
 /* Simple initialization of file_operations interface with a single operation */
 static struct file_operations fops = {
@@ -55,13 +71,10 @@ static struct file_operations fops = {
 
 static struct miscdevice display7s_misc = {
 	.minor = MISC_DYNAMIC_MINOR, /* kernel dynamically assigns a free minor# */
-	.name = DEVICE_NAME,		 /* when misc_register() is invoked, the kernel
-								  * will auto-create device file;
-								  * also populated within /sys/class/misc/ and /sys/devices/virtual/misc/ */
-	.mode = 0666,				 /* ... dev node perms set as specified here */
-	.fops = &fops,				 /* connect to this driver's 'functionality' */
+	.name = DEVICE_NAME,         /* kernel auto-creates device file */
+	.mode = 0666,                /* dev node permissions */
+	.fops = &fops,               /* connect to this driver's functionality */
 };
-
 
 /* Update the 7-segment display with the configuration specified by the data parameter */
 static void update_7sdisplay(unsigned char data)
@@ -93,8 +106,6 @@ static void update_7sdisplay(unsigned char data)
 
 /*
  * Called when a process writes to dev file: echo "hi" > /dev/display7s
- * Test with the following command to see the sequence better:
- * $ while true; do echo > /dev/display7s; sleep 0.3; done
  */
 static ssize_t display7s_write(struct file* file, const char __user* buf, size_t len, loff_t* offset) {
 	char user_input;
@@ -110,40 +121,26 @@ static ssize_t display7s_write(struct file* file, const char __user* buf, size_t
 		return -EFAULT; // Error en la copia desde el espacio de usuario
 	}
 
-	// Convertir el carácter en el valor binario correspondiente para el display de 7 segmentos
-	switch (user_input) {
-	case '0': display_value = DS_A | DS_B | DS_C | DS_D | DS_E | DS_F; break;
-	case '1': display_value = DS_B | DS_C; break;
-	case '2': display_value = DS_A | DS_B | DS_G | DS_E | DS_D; break;
-	case '3': display_value = DS_A | DS_B | DS_C | DS_D | DS_G; break;
-	case '4': display_value = DS_F | DS_G | DS_B | DS_C; break;
-	case '5': display_value = DS_A | DS_F | DS_G | DS_C | DS_D; break;
-	case '6': display_value = DS_A | DS_F | DS_G | DS_C | DS_D | DS_E; break;
-	case '7': display_value = DS_A | DS_B | DS_C; break;
-	case '8': display_value = DS_A | DS_B | DS_C | DS_D | DS_E | DS_F | DS_G; break;
-	case '9': display_value = DS_A | DS_B | DS_C | DS_F | DS_G; break;
-	case 'A': display_value = DS_A | DS_B | DS_C | DS_E | DS_F | DS_G; break;
-	case 'B': display_value = DS_C | DS_D | DS_E | DS_F | DS_G; break;
-	case 'C': display_value = DS_A | DS_D | DS_E | DS_F; break;
-	case 'D': display_value = DS_B | DS_C | DS_D | DS_E | DS_G; break;
-	case 'E': display_value = DS_A | DS_D | DS_E | DS_F | DS_G; break;
-	case 'F': display_value = DS_A | DS_E | DS_F | DS_G; break;
-	default:
-		return -EINVAL; // Argumento inválido (si no es un dígito hexadecimal)
+	// Validar que el carácter esté en el rango hexadecimal (0-9, A-F)
+	if ((user_input >= '0' && user_input <= '9') || (user_input >= 'A' && user_input <= 'F')) {
+		int index = (user_input <= '9') ? user_input - '0' : user_input - 'A' + 10;
+		display_value = hex_encoding[index];
+	}
+	else {
+		return -EINVAL; // Argumento inválido
 	}
 
 	// Actualizar el display con el valor correspondiente
 	update_7sdisplay(display_value);
 
-	return count; // Devolver el número de bytes escritos
+	return len; // Devolver el número de bytes escritos
 }
-
 
 static int __init display7s_misc_init(void)
 {
 	int i, j;
 	int err = 0;
-	struct device *device;
+	struct device* device;
 
 	for (i = 0; i < NR_GPIO_DISPLAY; i++)
 	{
@@ -182,9 +179,7 @@ static int __init display7s_misc_init(void)
 
 	device = display7s_misc.this_device;
 
-	dev_info(device, "Display7s driver registered succesfully. To talk to\n");
-	dev_info(device, "the driver try to cat and echo to /dev/%s.\n", DEVICE_NAME);
-	dev_info(device, "Remove the module when done.\n");
+	dev_info(device, "Display7s driver registered successfully.\n");
 
 	return 0;
 err_handle:
