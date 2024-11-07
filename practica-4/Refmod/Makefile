@@ -1,8 +1,7 @@
-obj-m += leds-pi.o 
+obj-m += refmod.o
 
 all:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
 
 clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
-
