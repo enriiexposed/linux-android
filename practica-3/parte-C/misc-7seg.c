@@ -37,7 +37,7 @@ struct gpio_desc* gpio_descriptors[NR_GPIO_DISPLAY];
 
 const char* display_gpio_str[NR_GPIO_DISPLAY] = { "sdi", "rclk", "srclk" };
 
-/* Codificación de cada carácter hexadecimal para el display de 7 segmentos */
+/* CodificaciÃ³n de cada carÃ¡cter hexadecimal para el display de 7 segmentos */
 const unsigned char hex_encoding[] = {
 	DS_A | DS_B | DS_C | DS_D | DS_E | DS_F,       // 0
 	DS_B | DS_C,                                   // 1
@@ -111,29 +111,29 @@ static ssize_t display7s_write(struct file* file, const char __user* buf, size_t
 	char user_input;
 	unsigned char display_value;
 
-	// Validación del tamaño de entrada (asegura que sea un solo carácter)
-	if (len != 1) {
-		return -EINVAL; // Argumento inválido
+	// ValidaciÃ³n del tamaÃ±o de entrada (asegura que sea un solo carÃ¡cter)
+	if (len != 2) {
+		return -EINVAL; // Argumento invÃ¡lido
 	}
 
-	// Leer un solo carácter del espacio de usuario
+	// Leer un solo carÃ¡cter del espacio de usuario
 	if (copy_from_user(&user_input, buf, 1)) {
 		return -EFAULT; // Error en la copia desde el espacio de usuario
 	}
 
-	// Validar que el carácter esté en el rango hexadecimal (0-9, A-F)
+	// Validar que el carÃ¡cter estÃ© en el rango hexadecimal (0-9, A-F)
 	if ((user_input >= '0' && user_input <= '9') || (user_input >= 'A' && user_input <= 'F')) {
 		int index = (user_input <= '9') ? user_input - '0' : user_input - 'A' + 10;
 		display_value = hex_encoding[index];
 	}
 	else {
-		return -EINVAL; // Argumento inválido
+		return -EINVAL; // Argumento invÃ¡lido
 	}
 
 	// Actualizar el display con el valor correspondiente
 	update_7sdisplay(display_value);
 
-	return len; // Devolver el número de bytes escritos
+	return len; // Devolver el nÃºmero de bytes escritos
 }
 
 static int __init display7s_misc_init(void)
