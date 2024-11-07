@@ -109,8 +109,6 @@ static int blink_release(struct inode *inode, struct file *file)
 #define NR_SAMPLE_COLORS 4
 
 unsigned int sample_colors[]={0x000011, 0x110000, 0x001100, 0x000000};
-
-/* Called when a user program invokes the write() system call on the device */
 static ssize_t blink_write(struct file *file, const char *user_buffer,
               size_t len, loff_t *off)
 {
@@ -151,19 +149,23 @@ static ssize_t blink_write(struct file *file, const char *user_buffer,
     while (token != NULL) {
         // Analizar el contenido de cada par (ledn,color)
         if (sscanf(token, "%u:0x%6x", &led_number, &color) == 2) {
-            // Asegúrate de que led_number esté dentro del rango
-            if (led_number < NR_LEDS) {
-                // Marcar el LED como configurado
-                led_set[led_number] = true;
-
-                // Rellenar el mensaje correspondiente para el LED en cuestión
-                messages[led_number * NR_BYTES_BLINK_MSG] = '\x05'; // Command
-                messages[led_number * NR_BYTES_BLINK_MSG + 1] = 0x00; // Reserved
-                messages[led_number * NR_BYTES_BLINK_MSG + 2] = led_number; // LED number
-                messages[led_number * NR_BYTES_BLINK_MSG + 3] = (color >> 16) & 0xff; // R
-                messages[led_number * NR_BYTES_BLINK_MSG + 4] = (color >> 8) & 0xff;  // G
-                messages[led_number * NR_BYTES_BLINK_MSG + 5] = color & 0xff;         // B
+            // Verificación de que el número de LED esté dentro del rango permitido
+            if (led_number >= NR_LEDS) {
+                kfree(messages);
+                kfree(kbuf);
+                return -EINVAL; // Argumento inválido, número de LED fuera de rango
             }
+
+            // Marcar el LED como configurado
+            led_set[led_number] = true;
+
+            // Rellenar el mensaje correspondiente para el LED en cuestión
+            messages[led_number * NR_BYTES_BLINK_MSG] = '\x05'; // Command
+            messages[led_number * NR_BYTES_BLINK_MSG + 1] = 0x00; // Reserved
+            messages[led_number * NR_BYTES_BLINK_MSG + 2] = led_number; // LED number
+            messages[led_number * NR_BYTES_BLINK_MSG + 3] = (color >> 16) & 0xff; // R
+            messages[led_number * NR_BYTES_BLINK_MSG + 4] = (color >> 8) & 0xff;  // G
+            messages[led_number * NR_BYTES_BLINK_MSG + 5] = color & 0xff;         // B
         }
         // Obtener el siguiente token
         token = strsep(&kbuf, ",");
@@ -211,6 +213,7 @@ out_error:
     kfree(messages);
     return retval;
 }
+
 
 /*
  * Operations associated with the character device 
