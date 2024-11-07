@@ -1,0 +1,3 @@
+El patrón que sigue nuestra práctica consiste en un led que recorre de extremo a extremo, es decir ida y vuelta, 
+el blinkstick un numero determinado de veces definido en el código y al llegar a uno de los extremos cambiara de color
+a uno ya predeterminado en el código.
