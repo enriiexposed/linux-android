@@ -171,13 +171,29 @@ int modlist_init(void) {
 }
 
 void modlist_clean(void) {
+    struct list_head *pos, *q;
+    struct list_item *item;
+
     if (atomic_read(&usage_count) == 0) {
+        spin_lock(&list_lock);
+
+        // Limpieza de todos los elementos en la lista numlist
+        list_for_each_safe(pos, q, &numlist) {
+            item = list_entry(pos, struct list_item, links);
+            list_del(pos);
+            release_list_item(item);
+        }
+
+        spin_unlock(&list_lock);
+
+        // Eliminación de la entrada /proc
         remove_proc_entry("modlist", NULL);
-        printk(KERN_INFO "Modulo LIN descargado. Adios kernel.\n");
+        printk(KERN_INFO "Modulo descargado y memoria liberada correctamente.\n");
     } else {
         printk(KERN_INFO "El módulo está en uso y no se puede descargar.\n");
     }
 }
+
 
 module_init(modlist_init);
 module_exit(modlist_clean);
