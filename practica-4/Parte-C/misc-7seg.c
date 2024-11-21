@@ -65,7 +65,6 @@
 
 	/* variable that defines the number of devices that are opening the file*/
 	#define MAX_OPEN_DEVICES 1
-	static struct spinlock sp;
 	static char opens = 0;
 
 	/* variable that defines the number of threads thar are writting to the gpiod pins (shouldn't be more than 1) */
@@ -121,23 +120,27 @@
 	}
 
 	int display7s_open (struct inode *node, struct file *filp) {
+		if(down_interruptible(&sem)) {
+			return -EINTR;
+		}
 		if (opens < MAX_OPEN_DEVICES) {
-			spin_lock(&sp);	
 			opens = 1;
 			try_module_get(THIS_MODULE);
-			spin_unlock(&sp);
 		} else {
 			printk(KERN_INFO "No se ha podido abrir el archivo de creacion\n");
 			return -EBUSY;
 		}
+		up(&sem);
 		
 		return 0;
 	}
 	int display7s_release (struct inode *node, struct file *filp) {
-		spin_lock(&sp);
+		if (down_interruptible(&sem)) {
+			return -EINTR;
+		}
 		opens = 0;
 		module_put(THIS_MODULE);
-		spin_unlock(&sp);
+		up(&sem);
 		return 0;
 	}
 
@@ -166,8 +169,10 @@
 		else {
 			return -EINVAL; // Argumento inválido
 		}
-
-		down_interruptible(&sem);
+		
+		if (down_interruptible(&sem)) {
+			return -EINTR;
+		}
 		// Actualizar el display con el valor correspondiente
 		update_7sdisplay(display_value);
 		up(&sem);
@@ -182,7 +187,6 @@
 		struct device* device;
 
 		sema_init(&sem, 1);
-		spin_lock_init(&sp);
 
 		for (i = 0; i < NR_GPIO_DISPLAY; i++)
 		{
@@ -249,3 +253,4 @@
 
 	module_init(display7s_misc_init);
 	module_exit(display7s_misc_exit);
+
