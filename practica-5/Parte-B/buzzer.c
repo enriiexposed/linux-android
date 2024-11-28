@@ -29,6 +29,29 @@ static struct miscdevice misc = {
     .fops = &fops,
 };
 
+#define Max_BEAT_LENGTH = 20;
+
+static ssize_t buzzer_read(struct file *filp, char *buf, size_t len, loff_t *off) {
+    int nr_bytes;
+    char aux_mesg[Max_BEAT_LENGTH];
+
+    if ((*off) > 0) 
+        retur
+    
+    nr_bytes = sprintf(aux_mesg, "beat=%d", beat);
+
+    if (len < nr_bytes) {
+        return -ENOSPC;
+    }
+
+     if (copy_to_user(buf, aux_mesg, nr_bytes)) {
+        return -EINVAL;
+    }
+    (*off) += nr_bytes; /* Update the file pointer */
+
+    return nr_bytes;
+}
+
 static int __init buzzer_init(void) {
     misc_register(&misc);
 }
