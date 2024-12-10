@@ -1,24 +1,33 @@
-#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/kernel.h> 
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/miscdevice.h>
 #include <linux/pwm.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>
 #include <linux/timer.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
+#include <linux/vmalloc.h>
+#include <linux/uaccess.h>
+#include <linux/spinlock.h>
+#include <linux/irqreturn.h>
+#include <linux/gpio.h>
+#include <linux/interrupt.h>
 
 
-MODULE_NAME("Buzzer Module")
-MODULE_AUTHOR("Enrique Ríos Ríos")
-MODULE_AUTHOR("Alejandro Orgaz")
-MODULE_LICENSE("GPL")
-MODULE_DESCRIPTION("A module that reproduces songs with raspberry's buzzer")
-
-#define DEVICE_NAME "buzzer"
+MODULE_AUTHOR("Enrique Ríos Ríos");
+MODULE_AUTHOR("Alejandro Orgaz");
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("A module that reproduces songs with raspberry's buzzer");
 
 /* Parámetros del módulo cargable */
-static unsigned short beat = 120;
-module_param(unsigned short, beat, 0);
-MODULE_PARAM_DESC(beat, "Marca el numero de figuras negras que sonaran en un minuto");
+static int beat = 120;
+module_param(beat, int, 0444);
+MODULE_PARM_DESC(beat, "Marca el numero de figuras negras que sonaran en un minuto");
+
+#define DEVICE_NAME "buzzer"
 
 struct music_step
 {
@@ -65,10 +74,10 @@ struct gpio_desc* desc_button = NULL;
 static int gpio_button_irqn = -1;
 
 /* Variables globales para la workqueue */
-static struct work_struct;
+static struct work_struct work;
 
 /* Variables globales para el timer del kernel */
-struct timer_list timer;
+static struct timer_list timer;
 
 /* Cabeceras de funciones*/
 static int buzzer_open(struct inode *inode, struct file *file);
@@ -76,18 +85,16 @@ static int buzzer_release(struct inode *inode, struct file *file);
 static ssize_t buzzer_read(struct file *filp, char *buf, size_t len, loff_t *off);
 static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t len, loff_t *off);
 
-static struct file_oeprations fops = {
-    .read = buzzer_read
+static struct file_operations fops = {
+    .read = buzzer_read,
     .write = buzzer_write
-    .open = buzzer_open
-    .release = buzzer_release
-}
+};
 
 static struct miscdevice misc = {
     .minor = MISC_DYNAMIC_MINOR,
     .name = DEVICE_NAME,
     .mode = 0666,
-    .fops = &fops,
+    .fops = &fops
 };
 
 /* Funcion que se ejecutará cuando haya que reproducir la nota correspondiente */
@@ -143,8 +150,7 @@ static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
         buzzer_request = REQUEST_PAUSE;
         break;
     default:
-        printk(KERN_INFO "The button wont have no effect 
-        when buzzer_request equals 'buzzer_none' or 'buzzer_config'\n");
+        printk(KERN_INFO "The button wont have no effect when buzzer_request equals buzzer_none or buzzer_config\n");
         break;
     }
 
@@ -152,7 +158,7 @@ static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
 }
 
 
-#define Max_BEAT_LENGTH = 20;
+#define Max_BEAT_LENGTH 20
 
 static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t len, loff_t *off) {
     char *buzzer;
@@ -160,8 +166,9 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
     unsigned long flags;
     int result = 0;
 
-    if (len >= PAGE_SIZE)
+    if (len >= PAGE_SIZE) {
         return -EINVAL;
+    }
 
     buzzer = kmalloc(len + 1, GFP_KERNEL);
     if (!buzzer)
@@ -216,18 +223,23 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
                 goto cleanup;
             }
 
-            if (kstrtouint(freq_str, 10, &song[i].freq) ||
-                kstrtouint(len_str, 10, &song[i].len)) {
+            unsigned int temp_freq, temp_len;
+
+            if (kstrtouint(freq_str, 10, &temp_freq) ||
+                kstrtouint(len_str, 10, &temp_len)) {
                 result = -EINVAL;
                 goto cleanup;
             }
+
+            song[i].freq = temp_freq;
+            song[i].len = temp_len;
 
             i++;
         }
 
         printk(KERN_INFO "Melodía configurada con %d notas.\n", i);
     } else if (strcmp(command, "beat") == 0) {
-        unsigned int new_beat;
+        int new_beat;
 
         if (!params || kstrtouint(params, 10, &new_beat) || new_beat == 0) {
             result = -EINVAL;
@@ -240,6 +252,10 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
         result = -EINVAL;
         goto cleanup;
     }
+
+    spin_unlock_irqrestore(&lock, flags);
+
+    return 0;
 
 cleanup:
     spin_unlock_irqrestore(&lock, flags);
@@ -268,9 +284,10 @@ static ssize_t buzzer_read(struct file *filp, char *buf, size_t len, loff_t *off
         return -ENOSPC;
     }
 
-     if (copy_to_user(buf, aux_mesg, nr_bytes)) {
+    if (copy_to_user(buf, aux_mesg, nr_bytes)) {
         return -EINVAL;
     }
+
     (*off) += nr_bytes; /* Update the file pointer */
 
     return nr_bytes;
@@ -278,14 +295,26 @@ static ssize_t buzzer_read(struct file *filp, char *buf, size_t len, loff_t *off
 
 static int __init buzzer_init(void) {
     char gpio_out_ok = 0;
+    int err;
+
     misc_register(&misc);
+    
     /* Requesting Button's GPIO */
     if ((err = gpio_request(GPIO_BUTTON, "button"))) {
         pr_err("ERROR: GPIO %d request\n", GPIO_BUTTON);
         goto err_handle;
     }
 
+    /* Configure Button */
+    if (!(desc_button = gpio_to_desc(GPIO_BUTTON))) {
+        pr_err("GPIO %d is not valid\n", GPIO_BUTTON);
+        err = -EINVAL;
+        goto err_handle;
+    }
+
     gpio_out_ok = 1;
+    gpiod_direction_input(desc_button);
+    printk("Request del boton completada\n");
 
     //Get the IRQ number for our GPIO
     gpio_button_irqn = gpiod_to_irq(desc_button);
@@ -299,27 +328,34 @@ static int __init buzzer_init(void) {
         pr_err("my_device: cannot register IRQ ");
         goto err_handle;
     }
+    printk(KERN_INFO "Interrupciones configuradas para el SW1\n");
 
-    INIT_WORK(&work);
-
-    pwm_request = pwm_request(0, PWM_DEVICE_NAME);
-    if (ERR_PTR(pwm_request)){
+    INIT_WORK(&work, run_buzzer_state);
+    printk(KERN_INFO "Tarea diferida iniciada correctamente\n");
+    
+    /* Init del pwm asociado al buzzer */
+    pwm_device = pwm_request(0, PWM_DEVICE_NAME);
+    if (IS_ERR(pwm_device)) {
+        err = PTR_ERR(pwm_device);
         goto err_handle;
     }
+    printk("PWM asociado al buzzer iniciado correctamente\n");
 
-    timer_setup(&my_timer,my_timer_function, 0);  
-    my_timer.expires=jiffies+msecs_to_jiffies(beat/(60*1000));
-
-    try_module_get(THIS_MODULE);
+    timer_setup(&timer, wait_for_next_note, 0);  
+    timer.expires=jiffies+msecs_to_jiffies((60*1000)/beat);
+    printk(KERN_INFO "Timer configurado correctamente\n");
 
     if ((song = vmalloc(PAGE_SIZE)) == NULL) {
+        err = -ENOMEM;
         goto pwm_err;
     }
+    printk(KERN_INFO "Memoria dinámica asociada a la cancion reservada correctamente\n");
+    
+    try_module_get(THIS_MODULE);
 
     return 0;
-    
 pwm_err:
-    pwm_free(pwm_request);
+    pwm_free(pwm_device);
 err_handle:
     if (gpio_out_ok) {
         gpiod_put(desc_button);
@@ -330,12 +366,14 @@ err_handle:
 
 
 static void __exit buzzer_exit(void) {
-    misc_deregister(&misc);
+    module_put(THIS_MODULE);
+    flush_scheduled_work();
     vfree(song);
-    flush_scheduled_work(&work);
+    pwm_free(pwm_device);
+    del_timer_sync(&timer);
     free_irq(gpio_button_irqn, NULL);
     gpiod_put(desc_button);
-    module_put(THIS_MODULE);
+    misc_deregister(&misc);
 }
 
 
