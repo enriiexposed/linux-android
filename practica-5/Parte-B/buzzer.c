@@ -144,10 +144,9 @@ void wait_for_next_note(struct timer_list *timer) {
     unsigned long flags;
     spin_lock_irqsave(&spin, flags);
     if (is_end_marker(next_note)) {
-        next_note = song[0];
+        next_note = song;
     }
     else {
-        /* Saltamos a la siguiente nota */
         next_note++;
     }
     schedule_work(&work);
@@ -156,7 +155,6 @@ void wait_for_next_note(struct timer_list *timer) {
 
 /* Tarea diferida que activará el buzzer dependiendo del estado*/
 static void run_buzzer_state(struct work_struct *work) {
-    
     switch(buzzer_request) {
         case REQUEST_START:
             /* Cambio de estado */
@@ -336,6 +334,8 @@ static int __init buzzer_init(void) {
     timer_setup(&my_timer,my_timer_function, 0);
     // Inicio la tarea diferida que hará funcionar al buffer (todavia no se planifica)
     INIT_WORK(&work); 
+    /* Set up del spin_lock*/
+    spin_lock_init(&sp);
 
     return 0;
     
@@ -352,11 +352,12 @@ err_handle:
 }
 
 static void __exit buzzer_exit(void) {
+    flush_scheduled_work(&work);
     misc_deregister(&misc);
     vfree(song);
     free_irq(gpio_button_irqn, NULL);
     gpiod_put(desc_button);
-    flush_scheduled_work(&work);
+    pwm_free(pwm_device);
     module_put(THIS_MODULE);
 }
 
