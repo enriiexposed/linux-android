@@ -158,7 +158,7 @@ static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
 }
 
 
-#define Max_BEAT_LENGTH 20
+#define MAX_BEAT_LENGTH 20
 
 static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t len, loff_t *off) {
     char *buzzer;
@@ -272,13 +272,13 @@ cleanup:
 
 static ssize_t buzzer_read(struct file *filp, char *buf, size_t len, loff_t *off) {
     int nr_bytes;
-    char aux_mesg[Max_BEAT_LENGTH];
+    char aux_mesg[MAX_BEAT_LENGTH];
 
     if ((*off) > 0) {
         return 0;
     }
     
-    nr_bytes = sprintf(aux_mesg, "beat=%d", beat);
+    nr_bytes = sprintf(aux_mesg, "beat=%d\n", beat);
 
     if (len < nr_bytes) {
         return -ENOSPC;
@@ -314,7 +314,7 @@ static int __init buzzer_init(void) {
 
     gpio_out_ok = 1;
     gpiod_direction_input(desc_button);
-    printk("Request del boton completada\n");
+    pr_info("Request del boton completada\n");
 
     //Get the IRQ number for our GPIO
     gpio_button_irqn = gpiod_to_irq(desc_button);
@@ -328,10 +328,10 @@ static int __init buzzer_init(void) {
         pr_err("my_device: cannot register IRQ ");
         goto err_handle;
     }
-    printk(KERN_INFO "Interrupciones configuradas para el SW1\n");
+    pr_info("Interrupciones configuradas para el SW1\n");
 
     INIT_WORK(&work, run_buzzer_state);
-    printk(KERN_INFO "Tarea diferida iniciada correctamente\n");
+    pr_info("Tarea diferida iniciada correctamente\n");
     
     /* Init del pwm asociado al buzzer */
     pwm_device = pwm_request(0, PWM_DEVICE_NAME);
@@ -339,23 +339,22 @@ static int __init buzzer_init(void) {
         err = PTR_ERR(pwm_device);
         goto err_handle;
     }
-    printk("PWM asociado al buzzer iniciado correctamente\n");
+    pr_info("PWM asociado al buzzer iniciado correctamente\n");
 
     timer_setup(&timer, wait_for_next_note, 0);  
     timer.expires=jiffies+msecs_to_jiffies((60*1000)/beat);
-    printk(KERN_INFO "Timer configurado correctamente\n");
+    pr_info("Timer configurado correctamente\n");
 
     if ((song = vmalloc(PAGE_SIZE)) == NULL) {
         err = -ENOMEM;
         goto pwm_err;
     }
-    printk(KERN_INFO "Memoria dinámica asociada a la cancion reservada correctamente\n");
-    
-    try_module_get(THIS_MODULE);
-
+    pr_info("Memoria dinámica asociada a la cancion reservada correctamente\n");
     return 0;
+
 pwm_err:
     pwm_free(pwm_device);
+    del_timer_sync(&timer);
 err_handle:
     if (gpio_out_ok) {
         gpiod_put(desc_button);
@@ -366,7 +365,6 @@ err_handle:
 
 
 static void __exit buzzer_exit(void) {
-    module_put(THIS_MODULE);
     flush_scheduled_work();
     vfree(song);
     pwm_free(pwm_device);
@@ -374,6 +372,7 @@ static void __exit buzzer_exit(void) {
     free_irq(gpio_button_irqn, NULL);
     gpiod_put(desc_button);
     misc_deregister(&misc);
+    pr_info("Todos los recursos han sido liberados"); 
 }
 
 
