@@ -138,7 +138,11 @@ static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
     
   switch(buzzer_state) {
     case BUZZER_STOPPED:
-        buzzer_request = REQUEST_START;
+        if (song == NULL) {
+            printk(KERN_INFO "No hay una cancion introducida");
+        } else {
+            buzzer_request = REQUEST_START;
+        }
         break;
     case BUZZER_PAUSED:
         buzzer_request = REQUEST_RESUME;
@@ -162,7 +166,8 @@ static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
 
 static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t len, loff_t *off) {
     char *buzzer;
-    char *command, *params;
+    char params[PAGE_SIZE];
+    int new_beat;
     unsigned long flags;
     int result = 0;
 
@@ -171,102 +176,93 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
     }
 
     buzzer = kmalloc(len + 1, GFP_KERNEL);
-    if (!buzzer)
+    if (!buzzer) {
         return -ENOMEM;
+    }
 
     if (copy_from_user(buzzer, buf, len)) {
-        kfree(buzzer);
-        return -EFAULT;
+        result = EFAULT;
+        goto mem_err;
     }
-    
     buzzer[len] = '\0';
 
-    command = strsep(&buzzer, " ");
-    params = buzzer;
+    pr_info("Puntero usuario movido a una variable del kernel");
 
     spin_lock_irqsave(&lock, flags);
 
-    if (buzzer_state == BUZZER_PLAYING) {
-        spin_unlock_irqrestore(&lock, flags);
-        kfree(buzzer);
-        return -EBUSY;
-    }
+    pr_info("Candado cogido");
 
+    if (buzzer_state == BUZZER_PLAYING) {
+        result = EBUSY;
+        goto buzzer_playing_err;
+    }
+    
     buzzer_request = REQUEST_CONFIG;
 
-    if (strcmp(command, "music") == 0) {
+    if (sscanf(buzzer, "music %s", params) == 1) {
         char *note_data;
+        char *notes = params;
         int i = 0;
 
-        if (!params) {
-            result = -EINVAL;
-            goto cleanup;
-        }
+        printk(KERN_INFO "Cancion: %s\n", buzzer);
 
+        // Borra memoria si ya habia
         if (song) {
             vfree(song);
-            song = NULL;
         }
 
+        // Guarda la memoria de la nueva cancion
         song = vmalloc(PAGE_SIZE);
         if (!song) {
-            result = -ENOMEM;
+            result = ENOMEM;
             goto cleanup;
         }
 
-        while ((note_data = strsep(&params, ",")) != NULL) {
-            char *freq_str = strsep(&note_data, ":");
-            char *len_str = note_data;
-
-            if (!freq_str || !len_str || i >= PAGE_SIZE / sizeof(struct music_step)) {
-                result = -EINVAL;
+        note_data = strsep(&notes, ",");
+        while (note_data != NULL) {
+            i++;
+            printk("%s\n", note_data);
+            int temp_freq, temp_len;
+            if (sscanf(note_data, "%d:%d", &temp_freq, &temp_len) != 2) {
+                result = EINVAL;
                 goto cleanup;
             }
-
-            unsigned int temp_freq, temp_len;
-
-            if (kstrtouint(freq_str, 10, &temp_freq) ||
-                kstrtouint(len_str, 10, &temp_len)) {
-                result = -EINVAL;
-                goto cleanup;
-            }
-
             song[i].freq = temp_freq;
             song[i].len = temp_len;
-
-            i++;
+    
+            note_data = strsep(&notes, ",");
         }
-
+        
+        next_note = song;
+        
+        spin_unlock_irqrestore(&lock, flags);
         printk(KERN_INFO "Melodía configurada con %d notas.\n", i);
-    } else if (strcmp(command, "beat") == 0) {
-        int new_beat;
-
-        if (!params || kstrtouint(params, 10, &new_beat) || new_beat == 0) {
-            result = -EINVAL;
-            goto cleanup;
+    } else if (sscanf(buzzer, "beat %d", &new_beat) == 1) {
+        if (new_beat <= 0) {
+            printk("Error al insertar el nuevo beat");
+            result = EINVAL;
+            goto buzzer_playing_err;
         }
-
         beat = new_beat;
         printk(KERN_INFO "Beat configurado a %u.\n", beat);
     } else {
-        result = -EINVAL;
-        goto cleanup;
+        result = EINVAL;
+        goto buzzer_playing_err;
     }
 
-    spin_unlock_irqrestore(&lock, flags);
-
-    return 0;
-
-cleanup:
-    spin_unlock_irqrestore(&lock, flags);
     kfree(buzzer);
 
-    if (result != 0 && song) {
-        vfree(song);
-        song = NULL;
-    }
+    *off += len;
 
-    return (result == 0) ? len : result;
+    return len;
+
+cleanup:
+    vfree(song);
+buzzer_playing_err:
+    spin_unlock_irqrestore(&lock, flags);
+mem_err:
+    kfree(buzzer);
+    return -result;
 }
 
 
@@ -374,7 +370,6 @@ static void __exit buzzer_exit(void) {
     misc_deregister(&misc);
     pr_info("Todos los recursos han sido liberados"); 
 }
-
 
 
 module_init(buzzer_init);
