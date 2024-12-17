@@ -82,9 +82,6 @@ static struct work_struct work;
 /* Variables globales para el timer del kernel */
 static struct timer_list timer;
 
-/* variable del candado spin-lock */
-static struct spinlock spin;
-
 /* Cabeceras de funciones*/
 static int buzzer_open(struct inode *inode, struct file *file);
 static int buzzer_release(struct inode *inode, struct file *file);
@@ -150,11 +147,13 @@ static inline int calculate_delay_ms(unsigned int note_len, unsigned int qnote_r
 	return total;
 }
 
-/* Tarea diferida que activará el buzzer dependiendo del estado*/
+/* Tarea diferida que activará el buzzer dependiendo del estado
+    Importante tener en cuenta que algunas funciones de pwm son bloqueantes (no usar spinlock)
+*/
 static void run_buzzer_state(struct work_struct *work) {
     unsigned long flags;
     /* Cambiamos los estados en base al request que nos llegue*/
-    spin_lock_irqsave(&spin, flags);
+    spin_lock_irqsave(&lock, flags);
     switch(buzzer_request) {
         case REQUEST_START:
         if (song != NULL) {
@@ -170,6 +169,7 @@ static void run_buzzer_state(struct work_struct *work) {
         add_timer(&timer);
             break;
         case REQUEST_PAUSE:
+        del_timer_sync(&timer);
         buzzer_state = BUZZER_PAUSED;
             break;
         case REQUEST_CONFIG:
@@ -190,12 +190,12 @@ static void run_buzzer_state(struct work_struct *work) {
             pr_info("El valor de buzzer_request esta corrompido\n");
             break;
     }
-    spin_unlock_irqrestore(&spin, flags);
 
     switch(buzzer_request) {
         case REQUEST_START:
             /* Config del timer */
             if (song != NULL) {
+                spin_unlock_irqrestore(&lock, flags);
                 /* Config del pwm para que suene */
                 #ifndef debug_mode
                 pwm_init_state(pwm_device, &pwm_state);
@@ -210,10 +210,12 @@ static void run_buzzer_state(struct work_struct *work) {
                 printk("Configurado el buzzer para la nota que va a sonar\n");
                 #endif
             } else {
+                spin_unlock_irqrestore(&lock, flags);
                 pr_info("No se puede iniciar, no hay una cancion configurada");
             } 
             break;
         case REQUEST_RESUME:
+            spin_unlock_irqrestore(&lock, flags);
             #ifndef debug_mode
             pwm_state.period = freq_to_period_ns(next_note->freq);
             pwm_disable(pwm_device);
@@ -228,12 +230,14 @@ static void run_buzzer_state(struct work_struct *work) {
             break;
         case REQUEST_PAUSE:
             #ifndef debug_mode
+            spin_unlock_irqrestore(&lock, flags);
             pwm_disable(pwm_device);
             #else 
             printk("El buzzer se ha parado, la cancion ha sido pausada\n");
             #endif
             break;
         case REQUEST_CONFIG:
+            spin_unlock_irqrestore(&lock, flags);
             #ifndef debug_mode
             pwm_disable(pwm_device);
             #else 
@@ -245,34 +249,39 @@ static void run_buzzer_state(struct work_struct *work) {
             if (buzzer_state == BUZZER_PLAYING) {
                 if (is_end_marker(next_note)) {
                     buzzer_state = BUZZER_STOPPED;
+                    spin_unlock_irqrestore(&lock, flags);
                     #ifndef debug_mode
                     pwm_disable(pwm_device);
                     #else
                     printk("La cancion ha acabado\n");
                     #endif
                 } else {
+                    spin_unlock_irqrestore(&lock, flags);
                     #ifndef debug_mode
                     pwm_state.period = freq_to_period_ns(next_note->freq);
                     pwm_disable(pwm_device);
                     if (pwm_state.period > 0) {
-                        pwm_set_relative_duty_cycle(&pwm_state, 60, 100);
+                        pwm_set_relative_duty_cycle(&pwm_state, 70, 100);
                         pwm_state.enabled = true;
                         pwm_apply_state(pwm_device, &pwm_state);
                     }
                     #else
                     printk("La cancion sigue reproduciendose\n");
                     #endif
-                }
-            }          
+                }   
+            } else {
+                spin_unlock_irqrestore(&lock, flags);
+            } 
             break;
         default:
+            spin_unlock_irqrestore(&lock, flags);
             pr_info("El valor de buzzer_request esta corrompido\n");
             break;
     }
 
-    spin_lock_irqsave(&spin, flags);
+    spin_lock_irqsave(&lock, flags);
     buzzer_request = REQUEST_NONE;    
-    spin_unlock_irqrestore(&spin, flags);
+    spin_unlock_irqrestore(&lock, flags);
     pr_info("Fin de la tarea diferida\n");      
 }
 
@@ -280,14 +289,14 @@ static void run_buzzer_state(struct work_struct *work) {
 /* Funcion que se ejecutará cuando haya que reproducir la nota correspondiente */
 static void wait_for_next_note(struct timer_list *timer) {
     unsigned long flags;
-    if (next_note != NULL) {
+    spin_lock_irqsave(&lock, flags);
         /* Paso a la siguiente nota*/
-        printk(KERN_INFO "Nota Inicial: %d --- ", next_note->freq);
-        next_note++;
-        printk(KERN_INFO "Nota Siguiente: %d\n", next_note->freq);
+    printk(KERN_INFO "Nota Inicial: %d --- ", next_note->freq);
+    next_note++;
+    printk(KERN_INFO "Nota Siguiente: %d\n", next_note->freq);
         /* Mando de nuevo la tarea diferida */
-        schedule_work(&work);
-    }
+    spin_unlock_irqrestore(&lock, flags);
+    schedule_work(&work);
 }
 
 /* Interrupcion del boton */
@@ -302,11 +311,7 @@ static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
   last_interrupt = jiffies;
 #endif
     unsigned long flags;
-    printk("Spinlock no adquirido\n");
-
-    spin_lock_irqsave(&spin, flags);
-
-    printk("Spinlock adquirido por interrupcion\n");
+    spin_lock_irqsave(&lock, flags);
 
   switch(buzzer_state) {
     case BUZZER_STOPPED:
@@ -314,23 +319,20 @@ static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
         printk(KERN_INFO "Solicitud para iniciar el reproductor\n");
         break;
     case BUZZER_PAUSED:
-        del_timer_sync(&timer);
         printk(KERN_INFO "Has pulsado el boton. El buzzer continúa su reproduccion\n");
         buzzer_request = REQUEST_RESUME;
         break;
     case BUZZER_PLAYING:
-        del_timer_sync(&timer);
         printk(KERN_INFO "Has pulsado el boton. El buzzer detiene su reproduccion\n");
         buzzer_request = REQUEST_PAUSE;
         break;
     }
-    spin_unlock_irqrestore(&spin, flags);
+    spin_unlock_irqrestore(&lock, flags);
     /* Inicio el trabajo diferido */
     printk("Fuera del candado, boton pulsado, ejecuto la tarea diferida\n");
     schedule_work(&work);
   return IRQ_HANDLED;
 }
-
 
 
 #define MAX_BEAT_LENGTH 20
@@ -341,6 +343,7 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
     int new_beat;
     unsigned long flags;
     int result = 0;
+    struct music_step *aux_song;
 
     if (len >= PAGE_SIZE) {
         return -EINVAL;
@@ -357,13 +360,9 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
     }
     buzzer[len] = '\0';
 
-    pr_info("Puntero usuario movido a una variable del kernel\n");
-
     spin_lock_irqsave(&lock, flags);
 
-    pr_info("Candado cogido\n");
-
-    if (buzzer_state != BUZZER_STOPPED) {
+    if (buzzer_state == BUZZER_PLAYING) {
         result = EBUSY;
         goto buzzer_playing_err;
     }
@@ -377,16 +376,9 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
         char *notes = params;
         int i = 0;
 
-        printk(KERN_INFO "Cancion: %s\n", buzzer);
-
-        // Borra memoria si ya habia
-        if (song) {
-            vfree(song);
-        }
-
         // Guarda la memoria de la nueva cancion
-        song = vmalloc(PAGE_SIZE);
-        if (!song) {
+        aux_song = vmalloc(PAGE_SIZE);
+        if (!aux_song) {
             result = ENOMEM;
             goto cleanup;
         }
@@ -400,43 +392,57 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
                 result = EINVAL;
                 goto cleanup;
             }
-            song[i].freq = temp_freq;
-            song[i].len = temp_len;
+            aux_song[i].freq = temp_freq;
+            aux_song[i].len = temp_len;
     
             note_data = strsep(&notes, ",");
         }
         
-        song[i].freq = 0;
-        song[i].len = 0;
+        aux_song[i + 1].freq = 0;
+        aux_song[i + 1].len = 0;
+
+        // Borra memoria si ya habia
+
+        spin_lock_irqsave(&lock, flags);
+
+        if (song) {
+            vfree(song);
+        }
+
+        song = aux_song;
 
         next_note = song;
+
+        spin_unlock_irqrestore(&lock, flags);
         
         printk(KERN_INFO "Melodía configurada con %d notas.\n", i);
     } else if (sscanf(buzzer, "beat %d", &new_beat) == 1) {
         if (new_beat <= 0) {
             printk("Error al insertar el nuevo beat\n");
             result = EINVAL;
-            goto mem_err;
+            goto buzzer_playing_err;
         }
+        spin_lock_irqsave(&lock, flags);
         beat = new_beat;
+        spin_unlock_irqrestore(&lock, flags);
         printk(KERN_INFO "Beat configurado a %u.\n", beat);
     } else {
         result = EINVAL;
-        goto mem_err;
+        goto buzzer_playing_err;
     }
+    
+    kfree(buzzer);
 
     schedule_work(&work);
-
-    kfree(buzzer);
 
     *off += len;
 
     return len;
 
 cleanup:
-    vfree(song);
+    vfree(aux_song);
 buzzer_playing_err:
-    spin_unlock_irqrestore(&spin, flags);
+    spin_unlock_irqrestore(&lock, flags);
 mem_err:
     kfree(buzzer);
     return -result;
@@ -481,6 +487,13 @@ static int __init buzzer_init(void) {
     int err;
 
     misc_register(&misc);
+
+    /* Init del spinlock */
+    spin_lock_init(&lock);
+
+    /* Init de la tarea diferida */
+    INIT_WORK(&work, run_buzzer_state);
+    pr_info("Tarea diferida iniciada correctamente\n");
     
     /* Requesting Button's GPIO */
     if ((err = gpio_request(GPIO_BUTTON, "button"))) {
@@ -512,10 +525,6 @@ static int __init buzzer_init(void) {
         goto err_handle;
     }
     pr_info("Interrupciones configuradas para el SW1\n");
-
-    /* Init de la tarea diferida */
-    INIT_WORK(&work, run_buzzer_state);
-    pr_info("Tarea diferida iniciada correctamente\n");
     
     /* Init del pwm asociado al buzzer */
     pwm_device = pwm_request(0, PWM_DEVICE_NAME);
@@ -525,9 +534,6 @@ static int __init buzzer_init(void) {
     }
     
     pr_info("PWM asociado al buzzer iniciado correctamente\n");
-
-    /* Init del spinlock */
-    spin_lock_init(&spin);
 
     /* Init del timer */
     timer_setup(&timer, wait_for_next_note, 0);  
