@@ -18,12 +18,7 @@
 
 MODULE_LICENSE("GPL");
 
-/* Debug Mode */
-
-// #define debug_mode
-
 #define MANUAL_DEBOUNCE
-
 
 /* Parámetros del módulo cargable */
 static int beat = 120;
@@ -152,137 +147,105 @@ static inline int calculate_delay_ms(unsigned int note_len, unsigned int qnote_r
 */
 static void run_buzzer_state(struct work_struct *work) {
     unsigned long flags;
+    
     /* Cambiamos los estados en base al request que nos llegue*/
     spin_lock_irqsave(&lock, flags);
-    switch(buzzer_request) {
-        case REQUEST_START:
-        if (song != NULL) {
-            buzzer_state = BUZZER_PLAYING;
-            timer.expires = jiffies + msecs_to_jiffies(calculate_delay_ms(next_note->len, beat));
-            add_timer(&timer);
-        }
-            break;
-        case REQUEST_RESUME:
-        buzzer_state = BUZZER_PLAYING;
-        /* Modifica la config del pwm para que vuelva a sonar */
-        timer.expires = jiffies + msecs_to_jiffies(calculate_delay_ms(next_note->len, beat));
-        add_timer(&timer);
-            break;
-        case REQUEST_PAUSE:
-        del_timer_sync(&timer);
-        buzzer_state = BUZZER_PAUSED;
-            break;
-        case REQUEST_CONFIG:
-        buzzer_state = BUZZER_STOPPED;
-            break;
-        case REQUEST_NONE:
-            if (buzzer_state == BUZZER_PLAYING) {
-                if (is_end_marker(next_note)) {
-                    /* reiniciamos la canción */
-                    next_note = song;
-                } else {
-                    timer.expires = jiffies + msecs_to_jiffies(calculate_delay_ms(next_note->len, beat));
-                    add_timer(&timer);
-                }
-            }
-            break;
-        default:
-            pr_info("El valor de buzzer_request esta corrompido\n");
-            break;
-    }
+    // variables auxiliares globales
+    int aux_beat = beat;
+    struct music_step *aux_next_note = next_note;
+    struct music_step *aux_song = song;
 
-    switch(buzzer_request) {
+    buzzer_request_t aux_buzzer_request = buzzer_request;
+
+    // variables booleanas de control
+    char song_configured = (song != NULL);
+    char buzzer_is_playing = (buzzer_state == BUZZER_PLAYING);
+    char end_of_song = is_end_marker(next_note);
+
+    // logica de transicion de estados
+    switch(aux_buzzer_request) {
         case REQUEST_START:
             /* Config del timer */
             if (song != NULL) {
-                spin_unlock_irqrestore(&lock, flags);
-                /* Config del pwm para que suene */
-                #ifndef debug_mode
+                buzzer_state = BUZZER_PLAYING;
+            }
+            break;
+        case REQUEST_RESUME:
+            buzzer_state = BUZZER_PLAYING;
+            break;
+        case REQUEST_PAUSE:
+            buzzer_state = BUZZER_PAUSED;
+            break;
+        case REQUEST_CONFIG:
+            buzzer_state = BUZZER_STOPPED;
+            break;
+        case REQUEST_NONE:
+        // si no ha cambiado el request en la interrupcion del botón, importante aquí
+            if (buzzer_is_playing && end_of_song) {
+                buzzer_state = BUZZER_STOPPED;
+                next_note = song;
+            }
+            break;
+    }
+
+    buzzer_request = REQUEST_NONE;
+
+    spin_unlock_irqrestore(&lock, flags);
+
+    switch(aux_buzzer_request) {
+        case REQUEST_START:
+            if (song_configured) {
+                timer.expires = jiffies + msecs_to_jiffies(calculate_delay_ms(aux_next_note->len, aux_beat));
+                add_timer(&timer);
                 pwm_init_state(pwm_device, &pwm_state);
-                pwm_state.period = freq_to_period_ns(next_note->freq);
+                pwm_state.period = freq_to_period_ns(aux_next_note->freq);
                 pwm_disable(pwm_device);
                 if (pwm_state.period > 0) {
                     pwm_set_relative_duty_cycle(&pwm_state, 70, 100);
                     pwm_state.enabled = true;
                     pwm_apply_state(pwm_device, &pwm_state);
                 }
-                #else
-                printk("Configurado el buzzer para la nota que va a sonar\n");
-                #endif
-            } else {
-                spin_unlock_irqrestore(&lock, flags);
-                pr_info("No se puede iniciar, no hay una cancion configurada");
-            } 
+            }
             break;
         case REQUEST_RESUME:
-            spin_unlock_irqrestore(&lock, flags);
-            #ifndef debug_mode
-            pwm_state.period = freq_to_period_ns(next_note->freq);
+            pwm_state.period = freq_to_period_ns(aux_next_note->freq);
             pwm_disable(pwm_device);
             if (pwm_state.period > 0) {
                 pwm_set_relative_duty_cycle(&pwm_state, 70, 100);
                 pwm_state.enabled = true;
                 pwm_apply_state(pwm_device, &pwm_state);
             }
-            #else 
-            printk("La cancion se va a reproducir\n");
-            #endif
+            /* Modifica la config del pwm para que vuelva a sonar */
+            timer.expires = jiffies + msecs_to_jiffies(calculate_delay_ms(aux_next_note->len, aux_beat));
+            add_timer(&timer);
             break;
         case REQUEST_PAUSE:
-            #ifndef debug_mode
-            spin_unlock_irqrestore(&lock, flags);
             pwm_disable(pwm_device);
-            #else 
-            printk("El buzzer se ha parado, la cancion ha sido pausada\n");
-            #endif
+            del_timer_sync(&timer);
             break;
         case REQUEST_CONFIG:
-            spin_unlock_irqrestore(&lock, flags);
-            #ifndef debug_mode
             pwm_disable(pwm_device);
-            #else 
-            printk("Se esta introduciendo una canción\n");
-            #endif
             break;
         case REQUEST_NONE:
-        // si no ha cambiado el request en la interrupcion del botón, importante aquí
-            if (buzzer_state == BUZZER_PLAYING) {
-                if (is_end_marker(next_note)) {
-                    buzzer_state = BUZZER_STOPPED;
-                    spin_unlock_irqrestore(&lock, flags);
-                    #ifndef debug_mode
+            if (buzzer_is_playing) {
+                if (end_of_song) {
+                    /* reiniciamos la canción */
                     pwm_disable(pwm_device);
-                    #else
-                    printk("La cancion ha acabado\n");
-                    #endif
                 } else {
-                    spin_unlock_irqrestore(&lock, flags);
-                    #ifndef debug_mode
-                    pwm_state.period = freq_to_period_ns(next_note->freq);
+                    pwm_state.period = freq_to_period_ns(aux_next_note->freq);
                     pwm_disable(pwm_device);
                     if (pwm_state.period > 0) {
                         pwm_set_relative_duty_cycle(&pwm_state, 70, 100);
                         pwm_state.enabled = true;
                         pwm_apply_state(pwm_device, &pwm_state);
                     }
-                    #else
-                    printk("La cancion sigue reproduciendose\n");
-                    #endif
-                }   
-            } else {
-                spin_unlock_irqrestore(&lock, flags);
-            } 
-            break;
-        default:
-            spin_unlock_irqrestore(&lock, flags);
-            pr_info("El valor de buzzer_request esta corrompido\n");
+                    timer.expires = jiffies + msecs_to_jiffies(calculate_delay_ms(aux_next_note->len, aux_beat));
+                    add_timer(&timer);
+                }
+            }
             break;
     }
-
-    spin_lock_irqsave(&lock, flags);
-    buzzer_request = REQUEST_NONE;    
-    spin_unlock_irqrestore(&lock, flags);
-    pr_info("Fin de la tarea diferida\n");      
+    pr_info("Fin de la tarea diferida\n");     
 }
 
 
@@ -360,21 +323,21 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
     }
     buzzer[len] = '\0';
 
-    spin_lock_irqsave(&lock, flags);
-
-    if (buzzer_state == BUZZER_PLAYING) {
-        result = EBUSY;
-        goto buzzer_playing_err;
-    }
-    
-    buzzer_request = REQUEST_CONFIG;
-
-    spin_unlock_irqrestore(&lock, flags);
-
     if (sscanf(buzzer, "music %s", params) == 1) {
         char *note_data;
         char *notes = params;
         int i = 0;
+
+        spin_lock_irqsave(&lock, flags);
+
+        if (buzzer_state == BUZZER_PLAYING) {
+            result = EBUSY;
+            goto buzzer_playing_err;
+        }
+        
+        buzzer_request = REQUEST_CONFIG;
+
+        spin_unlock_irqrestore(&lock, flags);
 
         // Guarda la memoria de la nueva cancion
         aux_song = vmalloc(PAGE_SIZE);
@@ -415,6 +378,8 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
 
         spin_unlock_irqrestore(&lock, flags);
         
+        schedule_work(&work);
+
         printk(KERN_INFO "Melodía configurada con %d notas.\n", i);
     } else if (sscanf(buzzer, "beat %d", &new_beat) == 1) {
         if (new_beat <= 0) {
@@ -432,8 +397,6 @@ static ssize_t buzzer_write(struct file *filp, const char __user *buf, size_t le
     }
     
     kfree(buzzer);
-
-    schedule_work(&work);
 
     *off += len;
 
