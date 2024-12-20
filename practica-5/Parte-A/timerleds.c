@@ -12,8 +12,8 @@ MODULE_AUTHOR("Enrique Rios Rios");
 MODULE_AUTHOR("Alejandro Fernandez Orgaz");
 
 /* Definición de parámetros variables del módulo */
-static short timer_period_ms = 0;
-module_param(timer_period_ms, short, 0000);
+static short timer_period_ms = 200;
+module_param(timer_period_ms, short, 0444);
 MODULE_PARM_DESC(timer_period_ms, "A timer in ms (default = 0)");
 
 /* Definicion de informacion importante sobre los pines de GPIOD que usaremos */
