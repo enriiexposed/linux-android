@@ -13,19 +13,12 @@ MODULE_AUTHOR("Alejandro Orgaz Fernández");
 
 // Defines de constantes del módulo
 #define MAX_SIZE 96
-<<<<<<< HEAD:modlist.c
 #define AUX_MAX_SIZE 10
 
 // Pendiente porque aquí no hay un puntero
 /*Información acerca del archivo creado en /proc*/
 static struct proc_dir_entry *proc_entry; 
 
-=======
-// Pendiente porque aquí no hay un puntero
-/*Información acerca del archivo creado en /proc*/
-static struct proc_dir_entry *proc_entry; 
-
->>>>>>> enri_v1:practica-1/modlist.c
  /* Nodo fantasma (cabecera) de la lista enlazada */
 static LIST_HEAD(numlist);
 
@@ -55,7 +48,6 @@ static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, lo
 
     printk(KERN_INFO "Entrando en lista");
 
-<<<<<<< HEAD:modlist.c
     // guardo un puntero del elemento borrado
     struct list_head *elemborrado = NULL;
 
@@ -67,8 +59,6 @@ static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, lo
 
     char numbufaux[AUX_MAX_SIZE] = "";
 
-=======
->>>>>>> enri_v1:practica-1/modlist.c
     list_for_each(i, &numlist) {
         // Usamos list_entry para saber el nodo que toca
         item = list_entry(i, struct list_item, links);
@@ -91,11 +81,6 @@ static ssize_t read_numlist (struct file *filp, char __user *buf, size_t len, lo
         ptrbufaux += numberbytes;
     }
 
-<<<<<<< HEAD:modlist.c
-=======
-    *ptrbufaux = '\0';
-
->>>>>>> enri_v1:practica-1/modlist.c
     bytes_written = ptrbufaux - bufaux;
 
     printk(KERN_INFO "Error de no poder escribir en buffer");
@@ -141,11 +126,7 @@ static ssize_t write_numlist (struct file *filp, const char __user *buf, size_t 
         return -EINVAL;
     }
 
-<<<<<<< HEAD:modlist.c
     if (copy_from_user(bufaux, buf, len)) {
-=======
-    if (copy_from_user(bufaux, buf, len) == 1) {
->>>>>>> enri_v1:practica-1/modlist.c
         return -EFAULT;
     }
 
